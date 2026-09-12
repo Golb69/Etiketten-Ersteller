@@ -1,2 +1,0 @@
-# Etiketten-Ersteller
-Etikettenersteller für 
