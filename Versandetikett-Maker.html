@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Versandetikett erstellen</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --ink:#111111;
+    --paper:#ffffff;
+    --line:#111111;
+    --muted:#6b6b6b;
+    --panel:#f4f3ef;
+    --panel-border:#dddad2;
+    --accent:#2b5fd9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:#eceae4;
+    color:var(--ink);
+    padding:32px 16px 64px;
+  }
+  .wrap{max-width:900px;margin:0 auto;}
+  h1{font-size:19px;font-weight:700;margin:0 0 4px;}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 28px;}
+
+  /* --- Etikett --- */
+  .stage{display:flex;justify-content:center;margin-bottom:24px;}
+  .label{
+    width:560px;
+    max-width:100%;
+    min-width:320px;
+    background:var(--paper);
+    border:1.5px solid var(--line);
+    padding:14px 18px 18px;
+    position:relative;
+    font-family:Arial,Helvetica,sans-serif;
+  }
+  .label:before{ /* Eckfalz oben rechts, wie auf Versandetiketten üblich */
+    content:"";
+    position:absolute;
+    top:-1.5px;right:-1.5px;
+    width:0;height:0;
+    border-style:solid;
+    border-width:0 14px 14px 0;
+    border-color:transparent #eceae4 transparent transparent;
+    filter:drop-shadow(-1px 1px 0 var(--line));
+  }
+  .sender{
+    font-size:11px;
+    line-height:1.4;
+    padding-bottom:7px;
+    border-bottom:1px solid var(--line);
+    margin-bottom:16px;
+    outline:none;
+    min-height:15px;
+    white-space:pre-wrap;
+  }
+  .sender:empty:before{content:attr(data-placeholder);color:#9a9a9a;}
+
+  .main-row{
+    display:flex;
+    align-items:flex-start;
+    gap:18px;
+  }
+  .recipient{
+    flex:1;
+    min-width:0;
+    font-size:23px;
+    font-weight:700;
+    line-height:1.38;
+    outline:none;
+    min-height:96px;
+    max-height:96px;
+    overflow:hidden;
+    white-space:pre-wrap;
+    overflow-wrap:break-word;
+    word-break:normal;
+    padding-top:2px;
+  }
+  .recipient:empty:before{
+    content:attr(data-placeholder);
+    color:#b7b7b7;
+    font-weight:400;
+    font-size:15px;
+  }
+
+  .crop-box{
+    flex:0 0 34%;
+    max-width:190px;
+    min-width:100px;
+    aspect-ratio:221/128;
+    border:1.5px dashed #c9c6bc;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    overflow:hidden;
+    background:#fafaf8;
+    position:relative;
+  }
+  .crop-box.has-image{border-style:solid;border-color:#ddd;}
+  .crop-box img{width:100%;height:100%;object-fit:fill;display:block;}
+  .crop-box .empty-hint{
+    font-size:10.5px;
+    color:#a7a49a;
+    text-align:center;
+    padding:8px;
+    line-height:1.5;
+  }
+  .crop-remove{
+    position:absolute;
+    top:4px;right:4px;
+    width:20px;height:20px;
+    border-radius:50%;
+    background:rgba(17,17,17,.72);
+    color:#fff;
+    border:none;
+    font-size:13px;
+    line-height:1;
+    cursor:pointer;
+    display:none;
+    align-items:center;
+    justify-content:center;
+  }
+  .crop-box.has-image .crop-remove{display:flex;}
+
+  .label.export-clean{border:none;}
+  .label.export-clean:before{display:none;content:none;}
+  .label.export-clean .crop-box{border:none;background:transparent;}
+
+  .crop-box .porto-display{display:none;}
+  .crop-box.mode-porto{
+    aspect-ratio:auto;
+    border:none;
+    background:transparent;
+    flex:0 0 auto;
+    max-width:none;
+    min-width:0;
+    width:auto;
+    justify-content:flex-end;
+  }
+  .crop-box.mode-porto .empty-hint,
+  .crop-box.mode-porto img,
+  .crop-box.mode-porto .crop-remove{display:none !important;}
+  .crop-box.mode-porto .porto-display{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+  }
+  .porto-line1, .porto-line2{
+    font-size:27px;
+    font-weight:700;
+    line-height:1.25;
+    white-space:nowrap;
+    outline:none;
+  }
+
+  /* --- Modus-Umschalter (iOS-Style) --- */
+  .mode-switch-row{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:12px;
+    margin-bottom:16px;
+  }
+  .mode-label{font-size:13px;font-weight:600;color:var(--muted);transition:color .15s;}
+  .mode-label.active{color:var(--ink);}
+  .ios-switch{
+    position:relative;
+    width:52px;height:30px;
+    border-radius:999px;
+    border:none;
+    background:#d7d5cc;
+    cursor:pointer;
+    padding:0;
+    flex-shrink:0;
+    transition:background .2s;
+  }
+  .ios-switch .knob{
+    position:absolute;
+    top:3px;left:3px;
+    width:24px;height:24px;
+    border-radius:50%;
+    background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.3);
+    transition:transform .2s;
+  }
+  .ios-switch.is-on{background:var(--accent);}
+  .ios-switch.is-on .knob{transform:translateX(22px);}
+
+  /* --- Verlauf --- */
+  .history-list{max-height:280px;overflow-y:auto;}
+  .history-item{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    padding:9px 0;
+    border-bottom:1px solid #e6e3d9;
+  }
+  .history-item:last-child{border-bottom:none;}
+  .history-main{min-width:0;}
+  .history-recipient{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .history-meta{font-size:11.5px;color:var(--muted);margin-top:1px;}
+  .history-empty{font-size:12.5px;color:var(--muted);}
+
+  /* --- Steuerung --- */
+  .top-panels{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  .top-panels .panel{margin-bottom:16px;}
+  .top-panels .panel .status{line-height:1.45;}
+  .upload-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:4px;}
+  .crop-box{cursor:pointer;}
+  .crop-box.has-image{cursor:default;}
+  .crop-box .empty-hint{cursor:pointer;}
+  @media (max-width:760px){.top-panels{grid-template-columns:1fr;gap:0;}}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--panel-border);
+    border-radius:10px;
+    padding:18px 20px;
+    margin-bottom:16px;
+  }
+  .panel h2{font-size:13px;margin:0 0 12px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:#4a4a4a;}
+  .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center;}
+
+  .btn{
+    display:inline-flex;align-items:center;gap:7px;
+    background:var(--ink);color:#fff;
+    border:none;border-radius:7px;
+    padding:9px 16px;
+    font-size:13.5px;font-weight:600;
+    cursor:pointer;
+  }
+  .btn:hover{background:#000;}
+  .btn.secondary{background:transparent;color:var(--ink);border:1px solid #c9c6bc;}
+  .btn.secondary:hover{background:#e9e7e0;}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  input[type=file]{display:none;}
+
+  .filename{font-size:12.5px;color:var(--muted);}
+
+  details{margin-top:14px;}
+  summary{cursor:pointer;font-size:12.5px;color:var(--muted);font-weight:600;user-select:none;}
+  .coords{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(130px,1fr));
+    gap:10px 14px;
+    margin-top:12px;
+  }
+  .field{display:flex;flex-direction:column;gap:4px;}
+  .field label{font-size:11px;color:var(--muted);}
+  .field input{
+    padding:7px 9px;
+    border:1px solid #c9c6bc;
+    border-radius:6px;
+    font-size:13px;
+    background:#fff;
+  }
+  .status{font-size:12.5px;margin-top:10px;}
+  .status.error{color:#b3261e;}
+  .status.ok{color:#1b7a3e;}
+
+  @media print{
+    body{background:#fff;padding:0;}
+    .wrap > *:not(.stage){display:none;}
+    .stage{margin:0;}
+    .label{border:1.5px solid #000;box-shadow:none;width:100mm;}
+    .label:before{display:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Versandetikett erstellen</h1>
+  <p class="sub">Absender und Empfänger direkt im Etikett bearbeiten. Über „Datei einfügen“ kannst du eine PDF laden – der definierte Bildausschnitt wird automatisch rechts neben dem Empfänger eingesetzt.</p>
+
+  <div class="stage">
+    <div class="label" id="label">
+      <div class="sender" id="sender" contenteditable="true" data-placeholder="Absender">Max Mustermann</div>
+      <div class="main-row">
+        <div class="recipient" id="recipient" contenteditable="true" data-placeholder="Empfänger eingeben …"></div>
+        <div class="crop-box" id="cropBox">
+          <span class="empty-hint" id="cropHint">PDF einfügen, um<br>hier den Ausschnitt<br>anzuzeigen</span>
+          <img id="cropImg" alt="Ausschnitt aus PDF" style="display:none;">
+          <button class="crop-remove" id="cropRemove" title="Bild entfernen">✕</button>
+          <div class="porto-display" id="portoDisplay">
+            <div class="porto-line1" id="portoLabelDisplay">#PORTO</div>
+            <div class="porto-line2" id="portoCodeDisplay"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="top-panels">
+    <div class="panel">
+      <h2>Etikettgröße</h2>
+      <div class="row">
+        <div class="field"><label for="labelWidthMM">Breite (mm)</label><input type="number" id="labelWidthMM" value="100" min="5" step="1"></div>
+        <div class="field"><label for="labelHeightMM">Höhe (mm)</label><input type="number" id="labelHeightMM" value="50" min="5" step="1"></div>
+      </div>
+      <div class="status" id="sizeHint">Diese Maße bestimmen die tatsächliche Papiergröße beim Drucken (z. B. 100×50 mm oder 20×40 mm). Das Etikett wird proportional eingepasst.</div>
+    </div>
+
+    <div class="panel">
+      <h2>Versandart</h2>
+      <div class="mode-switch-row">
+        <span class="mode-label" id="modeLabelLeft">Warensendung</span>
+        <button type="button" class="ios-switch" id="modeToggle" role="switch" aria-checked="false" title="Versandart wechseln">
+          <span class="knob"></span>
+        </button>
+        <span class="mode-label" id="modeLabelRight">#PORTO</span>
+      </div>
+
+      <div id="fileModeFields">
+        <div class="upload-row">
+          <label class="btn" for="pdfInput">📄 Datei einfügen</label>
+          <input type="file" id="pdfInput" accept="application/pdf">
+          <span class="filename" id="fileName">Keine Datei ausgewählt</span>
+        </div>
+        <div class="status">Warensendung: PDF einfügen. Der definierte Ausschnitt wird automatisch im Etikett angezeigt.</div>
+      </div>
+
+      <div id="portoModeFields" style="display:none;">
+        <div class="coords" style="grid-template-columns:1fr 1fr;">
+          <div class="field"><label for="portoLabel">Kennzeichnung</label><input type="text" id="portoLabel" value="#PORTO"></div>
+          <div class="field"><label for="portoCode">Code</label><input type="text" id="portoCode" placeholder="z. B. K2648LW"></div>
+        </div>
+        <div class="status">#PORTO: Kennzeichnung und optionalen Code eingeben.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Erweiterte Einstellungen</h2>
+
+    <details>
+      <summary>Erweiterte Einstellungen – Ausschnitt</summary>
+      <div class="coords">
+        <div class="field"><label for="targetW">PDF-Zielbreite (px)</label><input type="number" id="targetW" value="1190"></div>
+        <div class="field"><label for="targetH">PDF-Zielhöhe (px)</label><input type="number" id="targetH" value="1684"></div>
+        <div class="field"><label for="cropX">Ausschnitt X</label><input type="number" id="cropX" value="126"></div>
+        <div class="field"><label for="cropY">Ausschnitt Y</label><input type="number" id="cropY" value="36"></div>
+        <div class="field"><label for="cropW">Ausschnitt Breite</label><input type="number" id="cropW" value="221"></div>
+        <div class="field"><label for="cropH">Ausschnitt Höhe</label><input type="number" id="cropH" value="128"></div>
+      </div>
+      <div class="row" style="margin-top:12px;">
+        <button type="button" class="btn secondary" id="reapplyBtn">Ausschnitt mit diesen Werten neu berechnen</button>
+      </div>
+    </details>
+
+    <details>
+      <summary>Erweiterte Einstellungen – Bild im Druckergebnis</summary>
+      <div class="coords">
+        <div class="field"><label for="labelScale">Bildskalierung (%)</label><input type="number" id="labelScale" value="50" min="10" max="200" step="1"></div>
+        <div class="field"><label for="pdfImageX">PDF X-Position (mm)</label><input type="number" id="pdfImageX" value="0" step="1"></div>
+        <div class="field"><label for="pdfImageY">PDF Y-Position (mm)</label><input type="number" id="pdfImageY" value="0" step="1"></div>
+      </div>
+      <div class="status">50 % = 220 × 128 px. Die Skalierung verändert nur Breite und Höhe des Bildes proportional. Der Ausschnitt bleibt unverändert.</div>
+      <div class="row" style="margin-top:12px;">
+        <button type="button" class="btn secondary" id="factoryResetBtn">↺ Werkseinstellungen</button>
+      </div>
+    </details>
+
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Aktionen</h2>
+    <div class="row">
+      <button class="btn secondary" id="printBtn">🖨️ Drucken</button>
+      <button class="btn secondary" id="pdfBtn">📥 Als PDF speichern</button>
+      <button class="btn secondary" id="jpegBtn">🖼️ Als JPEG speichern</button>
+    </div>
+    <div class="status" id="actionStatus"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Verlauf (letzte 30 Etiketten)</h2>
+    <div class="history-empty" id="historyEmpty">Noch keine gespeicherten Etiketten.</div>
+    <div class="history-list" id="historyList"></div>
+    <div class="row" style="margin-top:12px;">
+      <button class="btn secondary" id="clearHistoryBtn">Verlauf leeren</button>
+      <button class="btn secondary" id="exportHistoryBtn">⬇️ Verlauf exportieren</button>
+      <label class="btn secondary" for="importHistoryInput" style="cursor:pointer;">⬆️ Verlauf importieren</label>
+      <input type="file" id="importHistoryInput" accept="application/json">
+    </div>
+    <div class="status" id="historyHint">Der Verlauf wird automatisch gespeichert, solange dieses Tool innerhalb von Claude geöffnet ist. Wird die Datei direkt im Browser (z. B. am Handy) geöffnet, kann der Verlauf beim Neuladen verloren gehen – nutze „Exportieren“/„Importieren“, um ihn zu sichern oder auf ein anderes Gerät zu übertragen.</div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+const pdfInput   = document.getElementById('pdfInput');
+const fileName   = document.getElementById('fileName');
+const statusEl   = document.getElementById('status');
+const cropBox    = document.getElementById('cropBox');
+const cropImg    = document.getElementById('cropImg');
+const cropHint   = document.getElementById('cropHint');
+const cropRemove = document.getElementById('cropRemove');
+const reapplyBtn = document.getElementById('reapplyBtn');
+const printBtn   = document.getElementById('printBtn');
+const factoryResetBtn = document.getElementById('factoryResetBtn');
+const senderEl   = document.getElementById('sender');
+const recipientEl= document.getElementById('recipient');
+const labelWidthMM = document.getElementById('labelWidthMM');
+const labelHeightMM = document.getElementById('labelHeightMM');
+const sizeHint = document.getElementById('sizeHint');
+const labelScale = document.getElementById('labelScale');
+const pdfImageX = document.getElementById('pdfImageX');
+const pdfImageY = document.getElementById('pdfImageY');
+
+const modeToggle     = document.getElementById('modeToggle');
+const modeLabelLeft  = document.getElementById('modeLabelLeft');
+const modeLabelRight = document.getElementById('modeLabelRight');
+const fileModeFields  = document.getElementById('fileModeFields');
+const portoModeFields = document.getElementById('portoModeFields');
+const portoLabelInput   = document.getElementById('portoLabel');
+const portoCodeInput    = document.getElementById('portoCode');
+const portoLabelDisplay = document.getElementById('portoLabelDisplay');
+const portoCodeDisplay  = document.getElementById('portoCodeDisplay');
+
+const historyListEl   = document.getElementById('historyList');
+const historyEmptyEl  = document.getElementById('historyEmpty');
+const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+const exportHistoryBtn = document.getElementById('exportHistoryBtn');
+const importHistoryInput = document.getElementById('importHistoryInput');
+const pdfBtn = document.getElementById('pdfBtn');
+const jpegBtn = document.getElementById('jpegBtn');
+const actionStatusEl = document.getElementById('actionStatus');
+
+let currentMode = 'warensendung';
+let hasCropImage = false;
+
+let lastPdfArrayBuffer = null;
+
+function setStatus(msg, type){
+  statusEl.textContent = msg || '';
+  statusEl.className = 'status' + (type ? ' ' + type : '');
+}
+
+function setActionStatus(msg, type){
+  actionStatusEl.textContent = msg || '';
+  actionStatusEl.className = 'status' + (type ? ' ' + type : '');
+}
+
+// Berechnet, wie das Etikett (im aktuell angezeigten Seitenverhältnis) proportional
+// in die gewünschten Zielmaße (mm) eingepasst wird – gemeinsam genutzt von Druck und PDF-Export.
+function computeFitTransform(liveLabel, targetW, targetH){
+  const rect = liveLabel.getBoundingClientRect();
+  const nativeWidthPx  = rect.width;
+  const nativeHeightPx = rect.height;
+
+  // Die aktuell angezeigte Etikettbreite entspricht per Definition 100mm.
+  const BASE_MM = 100;
+  const baseHeightMM = BASE_MM * (nativeHeightPx / nativeWidthPx);
+
+  const scale = Math.min(targetW / BASE_MM, targetH / baseHeightMM);
+  const contentWmm = BASE_MM * scale;
+  const contentHmm = baseHeightMM * scale;
+  const offsetXmm = (targetW - contentWmm) / 2;
+  const offsetYmm = (targetH - contentHmm) / 2;
+
+  return {nativeWidthPx, nativeHeightPx, scale, contentWmm, contentHmm, offsetXmm, offsetYmm};
+}
+
+function getCoords(){
+  return {
+    targetW: parseFloat(document.getElementById('targetW').value) || 1190,
+    targetH: parseFloat(document.getElementById('targetH').value) || 1684,
+    cropX:   parseFloat(document.getElementById('cropX').value) || 0,
+    cropY:   parseFloat(document.getElementById('cropY').value) || 0,
+    cropW:   parseFloat(document.getElementById('cropW').value) || 221,
+    cropH:   parseFloat(document.getElementById('cropH').value) || 128,
+  };
+}
+
+function updatePortoDisplay(){
+  portoLabelDisplay.textContent = portoLabelInput.value.trim() || '#PORTO';
+  portoCodeDisplay.textContent = portoCodeInput.value.trim();
+}
+
+function setMode(mode){
+  currentMode = mode;
+  const isPorto = mode === 'porto';
+  modeToggle.setAttribute('aria-checked', String(isPorto));
+  modeToggle.classList.toggle('is-on', isPorto);
+  modeLabelLeft.classList.toggle('active', !isPorto);
+  modeLabelRight.classList.toggle('active', isPorto);
+  fileModeFields.style.display = isPorto ? 'none' : 'block';
+  portoModeFields.style.display = isPorto ? 'block' : 'none';
+  cropBox.classList.toggle('mode-porto', isPorto);
+  if(isPorto) updatePortoDisplay();
+  fitRecipientText();
+}
+
+modeToggle.addEventListener('click', () => setMode(currentMode === 'porto' ? 'warensendung' : 'porto'));
+portoLabelInput.addEventListener('input', updatePortoDisplay);
+portoCodeInput.addEventListener('input', updatePortoDisplay);
+
+function applyImageDisplaySize(){
+  // 50 % = 220 × 128 px. Die Skalierung betrifft ausschließlich das Bild.
+  const factor = Math.max(10, parseFloat(labelScale.value) || 50) / 50;
+  const w = 220 * factor;
+  const h = 128 * factor;
+  cropBox.style.width = w + 'px';
+  cropBox.style.height = h + 'px';
+  cropBox.style.flex = '0 0 ' + w + 'px';
+  cropBox.style.maxWidth = 'none';
+  cropBox.style.minWidth = '0';
+  cropBox.style.aspectRatio = 'auto';
+}
+labelScale.addEventListener('input', applyImageDisplaySize);
+
+function updateSizeHint(){
+  sizeHint.textContent = `Diese Maße bestimmen die tatsächliche Papiergröße beim Drucken (${labelWidthMM.value || 100}×${labelHeightMM.value || 50} mm). Das Etikett wird proportional eingepasst.`;
+}
+labelWidthMM.addEventListener('input', updateSizeHint);
+labelHeightMM.addEventListener('input', updateSizeHint);
+
+
+async function renderCrop(arrayBuffer){
+  const {targetW, cropX, cropY, cropW, cropH} = getCoords();
+
+  const pdf = await pdfjsLib.getDocument({data: arrayBuffer.slice(0)}).promise;
+  const page = await pdf.getPage(1);
+  const baseViewport = page.getViewport({scale:1});
+  const scale = targetW / baseViewport.width;
+  const viewport = page.getViewport({scale});
+
+  const pageCanvas = document.createElement('canvas');
+  pageCanvas.width = Math.round(viewport.width);
+  pageCanvas.height = Math.round(viewport.height);
+  const pageCtx = pageCanvas.getContext('2d');
+  await page.render({canvasContext: pageCtx, viewport}).promise;
+
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width = cropW;
+  cropCanvas.height = cropH;
+  const cropCtx = cropCanvas.getContext('2d');
+  cropCtx.drawImage(pageCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+
+  const dataUrl = cropCanvas.toDataURL('image/png');
+  cropImg.src = dataUrl;
+  cropImg.style.display = 'block';
+  cropHint.style.display = 'none';
+  cropBox.classList.add('has-image');
+  hasCropImage = true;
+  applyImageDisplaySize();
+}
+
+cropHint.addEventListener('click', () => {
+  if(currentMode === 'warensendung') pdfInput.click();
+});
+
+cropBox.addEventListener('click', (e) => {
+  if(currentMode === 'warensendung' && !hasCropImage && e.target !== cropRemove){
+    pdfInput.click();
+  }
+});
+
+pdfInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  if(file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')){
+    setStatus('Bitte eine PDF-Datei auswählen.', 'error');
+    return;
+  }
+  fileName.textContent = file.name;
+  setStatus('Verarbeite PDF …');
+  try{
+    lastPdfArrayBuffer = await file.arrayBuffer();
+    await renderCrop(lastPdfArrayBuffer);
+    setStatus('Ausschnitt eingefügt.', 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus('Die PDF konnte nicht gelesen werden: ' + err.message, 'error');
+  }
+});
+
+reapplyBtn.addEventListener('click', async () => {
+  if(!lastPdfArrayBuffer){
+    setStatus('Bitte zuerst eine PDF-Datei einfügen.', 'error');
+    return;
+  }
+  setStatus('Berechne Ausschnitt neu …');
+  try{
+    await renderCrop(lastPdfArrayBuffer);
+    setStatus('Ausschnitt aktualisiert.', 'ok');
+  }catch(err){
+    console.error(err);
+    setStatus('Fehler beim Neuberechnen: ' + err.message, 'error');
+  }
+});
+
+cropRemove.addEventListener('click', () => {
+  cropImg.src = '';
+  cropImg.style.display = 'none';
+  cropHint.style.display = 'block';
+  cropBox.classList.remove('has-image');
+  lastPdfArrayBuffer = null;
+  hasCropImage = false;
+  fileName.textContent = 'Keine Datei ausgewählt';
+  pdfInput.value = '';
+  setStatus('');
+});
+
+printBtn.addEventListener('click', () => {
+  const liveLabel = document.getElementById('label');
+  const rect = liveLabel.getBoundingClientRect();
+  const targetW = Math.max(5, parseFloat(labelWidthMM.value) || 100);
+  const targetH = Math.max(5, parseFloat(labelHeightMM.value) || 50);
+
+  const labelClone = liveLabel.cloneNode(true);
+  labelClone.querySelectorAll('#cropHint, #cropRemove').forEach(el => el.remove());
+  labelClone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+  labelClone.querySelectorAll('[data-placeholder]').forEach(el => el.removeAttribute('data-placeholder'));
+  labelClone.removeAttribute('id');
+  labelClone.classList.add('print-label');
+
+  const image = labelClone.querySelector('.crop-box');
+  if(image && currentMode === 'warensendung'){
+    const imageScale = Math.max(10, parseFloat(labelScale.value) || 50) / 50;
+    image.style.width = (220 * imageScale) + 'px';
+    image.style.height = (128 * imageScale) + 'px';
+    const xMm = parseFloat(pdfImageX.value) || 0;
+    const yMm = parseFloat(pdfImageY.value) || 0;
+    const pxPerMm = rect.width / 100;
+    image.style.transform = `translate(${xMm * pxPerMm}px, ${yMm * pxPerMm}px)`;
+  }
+
+  const printCss = `
+    *{box-sizing:border-box;}
+    @page{size:${targetW}mm ${targetH}mm;margin:0;}
+    html,body{margin:0;padding:0;background:#fff;}
+    body{width:${targetW}mm;height:${targetH}mm;position:relative;overflow:hidden;font-family:Arial,Helvetica,sans-serif;}
+    .print-label{
+      position:absolute;top:0;left:0;width:${rect.width}px;
+      transform-origin:top left;
+      transform:scale(${Math.min(targetW/100, targetH/(100*(rect.height/rect.width)))});
+      background:#fff;padding:14px 18px 18px;
+    }
+    .sender{font-size:11px;line-height:1.4;padding-bottom:7px;border-bottom:1px solid #000;margin-bottom:16px;white-space:pre-wrap;}
+    .main-row{display:flex;align-items:flex-start;gap:18px;}
+    .recipient{flex:1;min-width:0;font-size:23px;font-weight:700;line-height:1.38;white-space:pre-wrap;overflow-wrap:break-word;word-break:normal;max-height:96px;overflow:hidden;padding-top:2px;}
+    .crop-box{flex:0 0 auto;width:${220 * (Math.max(10,parseFloat(labelScale.value)||50)/50)}px;height:${128 * (Math.max(10,parseFloat(labelScale.value)||50)/50)}px;max-width:none;min-width:0;aspect-ratio:auto;overflow:hidden;}
+    .crop-box img{width:100%;height:100%;object-fit:fill;display:block;}
+    .crop-box .porto-display{display:none;}
+    .crop-box.mode-porto{aspect-ratio:auto;flex:0 0 auto;max-width:none;min-width:0;width:auto;justify-content:flex-end;}
+    .crop-box.mode-porto .porto-display{display:flex;flex-direction:column;align-items:flex-end;}
+    .porto-line1,.porto-line2{font-size:27px;font-weight:700;line-height:1.25;white-space:nowrap;}
+  `;
+
+  const printWindow = window.open('', '_blank');
+  if(!printWindow){
+    setActionStatus('Pop-up wurde blockiert. Bitte Pop-ups erlauben und erneut versuchen.', 'error');
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Etikett drucken</title><style>'+printCss+'</style></head><body>'+labelClone.outerHTML+'</body></html>');
+  printWindow.document.close();
+
+  const triggerPrint=()=>{try{printWindow.focus();printWindow.print();}catch(e){}};
+  printWindow.onload=triggerPrint;
+  setTimeout(triggerPrint,350);
+  setActionStatus('Druckdialog geöffnet.','ok');
+  addHistoryEntry();
+});
+
+async function captureLabelClean(liveLabel, nativeWidthPx){
+  const clone = liveLabel.cloneNode(true);
+  clone.querySelectorAll('#cropHint, #cropRemove').forEach(el => el.remove());
+  clone.querySelectorAll('[contenteditable]').forEach(el => el.removeAttribute('contenteditable'));
+  clone.querySelectorAll('[data-placeholder]').forEach(el => el.removeAttribute('data-placeholder'));
+  clone.removeAttribute('id');
+  clone.classList.add('export-clean');
+  clone.style.width = nativeWidthPx + 'px';
+  clone.style.maxWidth = 'none';
+  clone.style.minWidth = '0';
+
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'fixed';
+  wrapper.style.top = '0';
+  wrapper.style.left = '-10000px';
+  wrapper.style.background = '#fff';
+  wrapper.appendChild(clone);
+  document.body.appendChild(wrapper);
+
+  try{
+    return await html2canvas(clone, {scale: 4, backgroundColor: '#ffffff'});
+  }finally{
+    wrapper.remove();
+  }
+}
+
+pdfBtn.addEventListener('click', async () => {
+  const targetW = Math.max(5, parseFloat(labelWidthMM.value) || 100);
+  const targetH = Math.max(5, parseFloat(labelHeightMM.value) || 50);
+  const liveLabel = document.getElementById('label');
+
+  setActionStatus('Erstelle PDF …');
+  pdfBtn.disabled = true;
+
+  try{
+    const rect = liveLabel.getBoundingClientRect();
+    const clone = liveLabel.cloneNode(true);
+    clone.querySelectorAll('#cropHint,#cropRemove').forEach(el=>el.remove());
+    clone.querySelectorAll('[contenteditable]').forEach(el=>el.removeAttribute('contenteditable'));
+    clone.querySelectorAll('[data-placeholder]').forEach(el=>el.removeAttribute('data-placeholder'));
+    clone.removeAttribute('id');
+    clone.classList.add('export-clean');
+    clone.style.width = rect.width + 'px';
+    clone.style.maxWidth = 'none';
+    clone.style.minWidth = '0';
+
+    const image = clone.querySelector('.crop-box');
+    if(image && currentMode === 'warensendung'){
+      const imageScale = Math.max(10, parseFloat(labelScale.value) || 50) / 50;
+      image.style.width = (220 * imageScale) + 'px';
+      image.style.height = (128 * imageScale) + 'px';
+      const xMm = parseFloat(pdfImageX.value) || 0;
+      const yMm = parseFloat(pdfImageY.value) || 0;
+      const pxPerMm = rect.width / 100;
+      image.style.transform = `translate(${xMm * pxPerMm}px, ${yMm * pxPerMm}px)`;
+    }
+
+    const wrapper = document.createElement('div');
+    wrapper.style.position='fixed';
+    wrapper.style.top='0';
+    wrapper.style.left='-10000px';
+    wrapper.style.background='#fff';
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    let canvas;
+    try{ canvas=await html2canvas(clone,{scale:4,backgroundColor:'#fff'}); }
+    finally{ wrapper.remove(); }
+
+    const {jsPDF}=window.jspdf;
+    const orientation=targetW>=targetH?'l':'p';
+    const pdf=new jsPDF({unit:'mm',format:[targetW,targetH],orientation});
+    pdf.addImage(canvas.toDataURL('image/png'),'PNG',0,0,targetW,targetH,undefined,'FAST');
+
+    const recipientRaw=(recipientEl.textContent||'Etikett').trim().split('\n')[0];
+    const safeName=recipientRaw.replace(/[^\p{L}\p{N} _-]/gu,'').trim().replace(/\s+/g,'_')||'Etikett';
+    pdf.save(`Etikett_${safeName}.pdf`);
+    setActionStatus('PDF wurde heruntergeladen.','ok');
+    addHistoryEntry();
+  }catch(err){
+    console.error(err);
+    setActionStatus('PDF konnte nicht erstellt werden: '+err.message,'error');
+  }finally{
+    pdfBtn.disabled=false;
+  }
+});
+
+jpegBtn.addEventListener('click', async () => {
+  const targetW = Math.max(5, parseFloat(labelWidthMM.value) || 100);
+  const targetH = Math.max(5, parseFloat(labelHeightMM.value) || 50);
+  const liveLabel=document.getElementById('label');
+  const PX_PER_MM=300/25.4;
+
+  setActionStatus('Erstelle JPEG …');
+  jpegBtn.disabled=true;
+
+  try{
+    const rect=liveLabel.getBoundingClientRect();
+    const clone=liveLabel.cloneNode(true);
+    clone.querySelectorAll('#cropHint,#cropRemove').forEach(el=>el.remove());
+    clone.querySelectorAll('[contenteditable]').forEach(el=>el.removeAttribute('contenteditable'));
+    clone.querySelectorAll('[data-placeholder]').forEach(el=>el.removeAttribute('data-placeholder'));
+    clone.removeAttribute('id');
+    clone.classList.add('export-clean');
+    clone.style.width=rect.width+'px';
+    clone.style.maxWidth='none';
+    clone.style.minWidth='0';
+
+    const image=clone.querySelector('.crop-box');
+    if(image && currentMode==='warensendung'){
+      const imageScale = Math.max(10, parseFloat(labelScale.value) || 50) / 50;
+      image.style.width = (220 * imageScale) + 'px';
+      image.style.height = (128 * imageScale) + 'px';
+      const xMm=parseFloat(pdfImageX.value)||0;
+      const yMm=parseFloat(pdfImageY.value)||0;
+      const pxPerMm=rect.width/100;
+      image.style.transform=`translate(${xMm*pxPerMm}px, ${yMm*pxPerMm}px)`;
+    }
+
+    const wrapper=document.createElement('div');
+    wrapper.style.position='fixed';
+    wrapper.style.top='0';
+    wrapper.style.left='-10000px';
+    wrapper.style.background='#fff';
+    wrapper.appendChild(clone);
+    document.body.appendChild(wrapper);
+
+    let labelCanvas;
+    try{labelCanvas=await html2canvas(clone,{scale:4,backgroundColor:'#fff'});}
+    finally{wrapper.remove();}
+
+    const outCanvas=document.createElement('canvas');
+    outCanvas.width=Math.round(targetW*PX_PER_MM);
+    outCanvas.height=Math.round(targetH*PX_PER_MM);
+    const ctx=outCanvas.getContext('2d');
+    ctx.fillStyle='#fff';
+    ctx.fillRect(0,0,outCanvas.width,outCanvas.height);
+    ctx.drawImage(labelCanvas,0,0,outCanvas.width,outCanvas.height);
+
+    const recipientRaw=(recipientEl.textContent||'Etikett').trim().split('\n')[0];
+    const safeName=recipientRaw.replace(/[^\p{L}\p{N} _-]/gu,'').trim().replace(/\s+/g,'_')||'Etikett';
+    const a=document.createElement('a');
+    a.href=outCanvas.toDataURL('image/jpeg',0.92);
+    a.download=`Etikett_${safeName}.jpg`;
+    document.body.appendChild(a);a.click();a.remove();
+
+    setActionStatus('JPEG wurde heruntergeladen.','ok');
+    addHistoryEntry();
+  }catch(err){
+    console.error(err);
+    setActionStatus('JPEG konnte nicht erstellt werden: '+err.message,'error');
+  }finally{
+    jpegBtn.disabled=false;
+  }
+});
+
+factoryResetBtn.addEventListener('click', () => {
+  // Nur die Einstellungen zurücksetzen. Empfänger, Absender und die geladene PDF bleiben erhalten.
+  document.getElementById('targetW').value = '1190';
+  document.getElementById('targetH').value = '1684';
+  document.getElementById('cropX').value = '126';
+  document.getElementById('cropY').value = '36';
+  document.getElementById('cropW').value = '221';
+  document.getElementById('cropH').value = '128';
+  labelScale.value = '50';
+  pdfImageX.value = '0';
+  pdfImageY.value = '0';
+  applyImageDisplaySize();
+  setStatus('Erweiterte Einstellungen auf Werkseinstellungen zurückgesetzt.', 'ok');
+});
+
+/* --- Empfänger-Schrift automatisch verkleinern (max. ~3 Zeilen Platz) --- */
+const RECIPIENT_BASE_SIZE = 23;
+const RECIPIENT_MIN_SIZE  = 11;
+const RECIPIENT_MAX_HEIGHT = 96; // entspricht dem für ~3 Zeilen reservierten Platz
+
+function fitRecipientText(){
+  recipientEl.style.fontSize = RECIPIENT_BASE_SIZE + 'px';
+  let size = RECIPIENT_BASE_SIZE;
+  while(recipientEl.scrollHeight > RECIPIENT_MAX_HEIGHT && size > RECIPIENT_MIN_SIZE){
+    size -= 1;
+    recipientEl.style.fontSize = size + 'px';
+  }
+}
+
+recipientEl.addEventListener('input', fitRecipientText);
+window.addEventListener('resize', fitRecipientText);
+
+/* --- Verlauf der letzten 30 Etiketten --- */
+const HISTORY_KEY = 'label-history';
+const HISTORY_LIMIT = 30;
+let history = [];
+
+function escapeHtml(str){
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function renderHistory(){
+  historyListEl.innerHTML = '';
+  if(history.length === 0){
+    historyEmptyEl.style.display = 'block';
+    return;
+  }
+  historyEmptyEl.style.display = 'none';
+  history.forEach(entry => {
+    const item = document.createElement('div');
+    item.className = 'history-item';
+    const recipientLine = entry.recipientText ? entry.recipientText.split('\n')[0] : '(kein Empfänger)';
+    const modeLabel = entry.mode === 'porto' ? '#PORTO' : 'Warensendung';
+    item.innerHTML =
+      '<div class="history-main">' +
+        '<div class="history-recipient">' + escapeHtml(recipientLine) + '</div>' +
+        '<div class="history-meta">' + escapeHtml(entry.date) + ' · ' + modeLabel + '</div>' +
+      '</div>' +
+      '<button class="btn secondary history-load" data-id="' + entry.id + '">Laden</button>';
+    historyListEl.appendChild(item);
+  });
+  historyListEl.querySelectorAll('.history-load').forEach(btn => {
+    btn.addEventListener('click', () => loadHistoryEntry(Number(btn.dataset.id)));
+  });
+}
+
+async function saveHistory(){
+  try{
+    if(window.storage){
+      await window.storage.set(HISTORY_KEY, JSON.stringify(history), false);
+    }
+  }catch(e){
+    console.error('Verlauf konnte nicht gespeichert werden:', e);
+  }
+}
+
+async function loadHistory(){
+  try{
+    if(window.storage){
+      const res = await window.storage.get(HISTORY_KEY, false);
+      if(res && res.value){
+        history = JSON.parse(res.value);
+      }
+    }
+  }catch(e){
+    history = [];
+  }
+  renderHistory();
+}
+
+function addHistoryEntry(){
+  const entry = {
+    id: Date.now(),
+    date: new Date().toLocaleString('de-DE'),
+    mode: currentMode,
+    senderHTML: senderEl.innerHTML,
+    recipientHTML: recipientEl.innerHTML,
+    recipientText: recipientEl.textContent,
+    labelWidthMM: labelWidthMM.value,
+    labelHeightMM: labelHeightMM.value,
+    labelScale: labelScale.value,
+    targetW: document.getElementById('targetW').value,
+    targetH: document.getElementById('targetH').value,
+    cropX: document.getElementById('cropX').value,
+    cropY: document.getElementById('cropY').value,
+    cropW: document.getElementById('cropW').value,
+    cropH: document.getElementById('cropH').value,
+    pdfImageX: pdfImageX.value,
+    pdfImageY: pdfImageY.value,
+    cropImageDataUrl: (currentMode === 'warensendung' && hasCropImage) ? cropImg.src : null,
+    portoLabel: portoLabelInput.value,
+    portoCode: portoCodeInput.value,
+  };
+  history.unshift(entry);
+  if(history.length > HISTORY_LIMIT){
+    history = history.slice(0, HISTORY_LIMIT);
+  }
+  renderHistory();
+  saveHistory();
+}
+
+function loadHistoryEntry(id){
+  const entry = history.find(h => h.id === id);
+  if(!entry) return;
+
+  senderEl.innerHTML = entry.senderHTML;
+  recipientEl.innerHTML = entry.recipientHTML;
+  labelWidthMM.value = entry.labelWidthMM || '100';
+  labelHeightMM.value = entry.labelHeightMM || '50';
+  labelScale.value = entry.labelScale || '50';
+  document.getElementById('targetW').value = entry.targetW || '1190';
+  document.getElementById('targetH').value = entry.targetH || '1684';
+  document.getElementById('cropX').value = entry.cropX || '126';
+  document.getElementById('cropY').value = entry.cropY || '36';
+  document.getElementById('cropW').value = entry.cropW || '221';
+  document.getElementById('cropH').value = entry.cropH || '128';
+  pdfImageX.value = entry.pdfImageX || '0';
+  pdfImageY.value = entry.pdfImageY || '0';
+  applyImageDisplaySize();
+
+  if(entry.mode === 'porto'){
+    portoLabelInput.value = entry.portoLabel || '#PORTO';
+    portoCodeInput.value = entry.portoCode || '';
+    setMode('porto');
+  }else{
+    portoLabelInput.value = entry.portoLabel || '#PORTO';
+    portoCodeInput.value = entry.portoCode || '';
+    if(entry.cropImageDataUrl){
+      cropImg.src = entry.cropImageDataUrl;
+      cropImg.style.display = 'block';
+      cropHint.style.display = 'none';
+      cropBox.classList.add('has-image');
+      hasCropImage = true;
+    }else{
+      cropImg.src = '';
+      cropImg.style.display = 'none';
+      cropHint.style.display = 'block';
+      cropBox.classList.remove('has-image');
+      hasCropImage = false;
+    }
+    setMode('warensendung');
+  }
+
+  fitRecipientText();
+  setStatus('Etikett aus dem Verlauf geladen.', 'ok');
+}
+
+clearHistoryBtn.addEventListener('click', () => {
+  history = [];
+  renderHistory();
+  saveHistory();
+});
+
+exportHistoryBtn.addEventListener('click', () => {
+  if(history.length === 0){
+    setStatus('Der Verlauf ist leer – nichts zu exportieren.', 'error');
+    return;
+  }
+  const blob = new Blob([JSON.stringify(history, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'etikett-verlauf.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setStatus('Verlauf exportiert.', 'ok');
+});
+
+importHistoryInput.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  try{
+    const text = await file.text();
+    const imported = JSON.parse(text);
+    if(!Array.isArray(imported)) throw new Error('Ungültiges Format');
+    const merged = [...imported, ...history];
+    const seen = new Set();
+    history = merged.filter(entry => {
+      if(seen.has(entry.id)) return false;
+      seen.add(entry.id);
+      return true;
+    }).slice(0, HISTORY_LIMIT);
+    renderHistory();
+    saveHistory();
+    setStatus('Verlauf importiert.', 'ok');
+  }catch(err){
+    setStatus('Verlauf konnte nicht importiert werden: ' + err.message, 'error');
+  }
+  importHistoryInput.value = '';
+});
+
+/* --- Initialisierung --- */
+setMode('warensendung');
+updatePortoDisplay();
+applyImageDisplaySize();
+updateSizeHint();
+fitRecipientText();
+loadHistory();
+</script>
+</body>
+</html>
